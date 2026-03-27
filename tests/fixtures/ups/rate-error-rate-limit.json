@@ -1,0 +1,10 @@
+{
+  "response": {
+    "errors": [
+      {
+        "code": "120506",
+        "message": "Rate limit exceeded. Please retry after some time"
+      }
+    ]
+  }
+}

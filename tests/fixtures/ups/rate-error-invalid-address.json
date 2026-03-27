@@ -1,0 +1,10 @@
+{
+  "response": {
+    "errors": [
+      {
+        "code": "111210",
+        "message": "The postal code 00000 is invalid for the state NY."
+      }
+    ]
+  }
+}

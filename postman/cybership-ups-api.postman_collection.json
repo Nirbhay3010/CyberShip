@@ -1,0 +1,535 @@
+{
+	"info": {
+		"_postman_id": "cybership-ups-rating-api",
+		"name": "Cybership — UPS Rating API",
+		"description": "Postman collection for the UPS Rating API endpoints wrapped by the Cybership Carrier Integration Service.\n\nThis collection documents the raw UPS API calls that the service makes under the hood. Use it to:\n- Understand the exact request/response shapes\n- Test against the UPS sandbox with real credentials\n- Debug integration issues by replaying requests manually\n\n## Setup\n1. Set `ups_client_id` and `ups_client_secret` in collection variables\n2. Optionally set `ups_account_number`\n3. Run the **OAuth Token** request first — it auto-saves the Bearer token\n4. Run any Rate request\n\n## Environments\n- **Sandbox**: `https://wwwcie.ups.com` (default)\n- **Production**: `https://onlinetools.ups.com`",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "https://wwwcie.ups.com",
+			"description": "UPS API base URL. Sandbox: https://wwwcie.ups.com | Production: https://onlinetools.ups.com"
+		},
+		{
+			"key": "api_version",
+			"value": "v2409",
+			"description": "UPS Rating API version"
+		},
+		{
+			"key": "ups_client_id",
+			"value": "",
+			"description": "UPS OAuth client ID (from developer.ups.com)"
+		},
+		{
+			"key": "ups_client_secret",
+			"value": "",
+			"description": "UPS OAuth client secret"
+		},
+		{
+			"key": "ups_account_number",
+			"value": "",
+			"description": "UPS shipper account number (optional, for negotiated rates)"
+		},
+		{
+			"key": "access_token",
+			"value": "",
+			"description": "Auto-populated by the OAuth Token request"
+		}
+	],
+	"item": [
+		{
+			"name": "Authentication",
+			"description": "UPS OAuth 2.0 client-credentials flow. Run this first to obtain a Bearer token for subsequent API calls.",
+			"item": [
+				{
+					"name": "OAuth 2.0 Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const json = pm.response.json();",
+									"    pm.collectionVariables.set('access_token', json.access_token);",
+									"    ",
+									"    pm.test('Token acquired successfully', function () {",
+									"        pm.expect(json.token_type).to.eql('Bearer');",
+									"        pm.expect(json.access_token).to.be.a('string').and.not.empty;",
+									"        pm.expect(json.expires_in).to.be.a('number').and.above(0);",
+									"    });",
+									"    ",
+									"    pm.test('Token saved to collection variables', function () {",
+									"        pm.expect(pm.collectionVariables.get('access_token')).to.eql(json.access_token);",
+									"    });",
+									"} else {",
+									"    pm.test('Token request failed with status ' + pm.response.code, function () {",
+									"        pm.expect.fail('Expected 200, got ' + pm.response.code);",
+									"    });",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/x-www-form-urlencoded"
+							}
+						],
+						"auth": {
+							"type": "basic",
+							"basic": [
+								{ "key": "username", "value": "{{ups_client_id}}" },
+								{ "key": "password", "value": "{{ups_client_secret}}" }
+							]
+						},
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{
+									"key": "grant_type",
+									"value": "client_credentials"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/security/v1/oauth/token",
+							"host": ["{{base_url}}"],
+							"path": ["security", "v1", "oauth", "token"]
+						},
+						"description": "Acquire an OAuth 2.0 access token using the client-credentials grant type.\n\nThe token is valid for approximately 4 hours (14399 seconds). The test script automatically saves the token to the `access_token` collection variable for use by subsequent requests.\n\n**Our service handles this transparently** via `UpsAuthManager` — token caching, concurrent deduplication, and auto-refresh on expiry."
+					},
+					"response": [
+						{
+							"name": "200 — Token Acquired",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{ "key": "Content-Type", "value": "application/json" }
+							],
+							"body": "{\n  \"token_type\": \"Bearer\",\n  \"access_token\": \"eyJhbGciOiJSUzM4NCIsInR5cCI6IkpXVCJ9...\",\n  \"issued_at\": \"1706803200000\",\n  \"client_id\": \"your_client_id\",\n  \"expires_in\": 14399,\n  \"status\": \"approved\"\n}",
+							"_postman_previewlanguage": "json"
+						},
+						{
+							"name": "401 — Invalid Credentials",
+							"status": "Unauthorized",
+							"code": 401,
+							"header": [
+								{ "key": "Content-Type", "value": "application/json" }
+							],
+							"body": "{\n  \"response\": {\n    \"errors\": [\n      {\n        \"code\": \"250002\",\n        \"message\": \"Invalid authentication credential\"\n      }\n    ]\n  }\n}",
+							"_postman_previewlanguage": "json"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Rating",
+			"description": "UPS Rating API endpoints. These are the raw API calls that `UpsRatingOperation` makes.\n\n- **Shop** (`/Shop`) — returns quotes for ALL available services\n- **Rate** (`/Rate`) — returns a quote for a SPECIFIC service",
+			"item": [
+				{
+					"name": "Rate Shop — All Services",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const json = pm.response.json();",
+									"    ",
+									"    pm.test('Response status is Success', function () {",
+									"        pm.expect(json.RateResponse.Response.ResponseStatus.Code).to.eql('1');",
+									"    });",
+									"    ",
+									"    pm.test('Multiple rated shipments returned', function () {",
+									"        const shipments = json.RateResponse.RatedShipment;",
+									"        const arr = Array.isArray(shipments) ? shipments : [shipments];",
+									"        pm.expect(arr.length).to.be.above(0);",
+									"    });",
+									"    ",
+									"    pm.test('Each shipment has service code and total charges', function () {",
+									"        const shipments = json.RateResponse.RatedShipment;",
+									"        const arr = Array.isArray(shipments) ? shipments : [shipments];",
+									"        arr.forEach(function(s) {",
+									"            pm.expect(s.Service.Code).to.be.a('string');",
+									"            pm.expect(s.TotalCharges.MonetaryValue).to.be.a('string');",
+									"            pm.expect(s.TotalCharges.CurrencyCode).to.be.a('string');",
+									"        });",
+									"    });",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"RateRequest\": {\n    \"Request\": {\n      \"SubVersion\": \"2409\"\n    },\n    \"Shipment\": {\n      \"Shipper\": {\n        \"Name\": \"Warehouse A\",\n        \"ShipperNumber\": \"{{ups_account_number}}\",\n        \"Address\": {\n          \"AddressLine\": [\"123 Main St\"],\n          \"City\": \"New York\",\n          \"StateProvinceCode\": \"NY\",\n          \"PostalCode\": \"10001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"ShipTo\": {\n        \"Name\": \"Customer\",\n        \"Address\": {\n          \"AddressLine\": [\"456 Oak Ave\"],\n          \"City\": \"Los Angeles\",\n          \"StateProvinceCode\": \"CA\",\n          \"PostalCode\": \"90001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"ShipFrom\": {\n        \"Name\": \"Warehouse A\",\n        \"Address\": {\n          \"AddressLine\": [\"123 Main St\"],\n          \"City\": \"New York\",\n          \"StateProvinceCode\": \"NY\",\n          \"PostalCode\": \"10001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"Package\": [\n        {\n          \"PackagingType\": { \"Code\": \"02\" },\n          \"Dimensions\": {\n            \"UnitOfMeasurement\": { \"Code\": \"IN\" },\n            \"Length\": \"10\",\n            \"Width\": \"8\",\n            \"Height\": \"6\"\n          },\n          \"PackageWeight\": {\n            \"UnitOfMeasurement\": { \"Code\": \"LBS\" },\n            \"Weight\": \"5.5\"\n          }\n        }\n      ]\n    }\n  }\n}",
+							"options": {
+								"raw": { "language": "json" }
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/rating/{{api_version}}/Shop",
+							"host": ["{{base_url}}"],
+							"path": ["api", "rating", "{{api_version}}", "Shop"]
+						},
+						"description": "**Rate Shopping** — returns quotes for all available UPS services for the given shipment.\n\nThis is the endpoint used when `serviceLevel` is omitted from the `DomainRateRequest`. The service sends to `/Shop` and receives multiple `RatedShipment` entries.\n\n**Service maps this to:** `UpsRateMapper.resolveRequestOption()` → `\"Shop\"`\n\n**Note:** The `Service` field is intentionally omitted from the Shipment — this tells UPS to return all available services.\n\n### UPS Service Codes\n| Code | Service | ServiceLevel |\n|------|---------|-------------|\n| 01 | UPS Next Day Air | Overnight |\n| 02 | UPS 2nd Day Air | TwoDay |\n| 03 | UPS Ground | Ground |\n| 12 | UPS 3 Day Select | ThreeDay |\n| 13 | UPS Next Day Air Saver | Express |\n| 14 | UPS Next Day Air Early | Overnight |\n| 59 | UPS 2nd Day Air A.M. | TwoDay |"
+					},
+					"response": [
+						{
+							"name": "200 — Multiple Service Quotes",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{ "key": "Content-Type", "value": "application/json" }
+							],
+							"body": "{\n  \"RateResponse\": {\n    \"Response\": {\n      \"ResponseStatus\": { \"Code\": \"1\", \"Description\": \"Success\" },\n      \"Alert\": [{ \"Code\": \"110001\", \"Description\": \"Success\" }],\n      \"TransactionReference\": { \"CustomerContext\": \"test-context\" }\n    },\n    \"RatedShipment\": [\n      {\n        \"Service\": { \"Code\": \"03\", \"Description\": \"UPS Ground\" },\n        \"RatedPackage\": [{\n          \"TransportationCharges\": { \"CurrencyCode\": \"USD\", \"MonetaryValue\": \"18.50\" },\n          \"BaseServiceCharge\": { \"CurrencyCode\": \"USD\", \"MonetaryValue\": \"15.00\" },\n          \"Weight\": { \"UnitOfMeasurement\": { \"Code\": \"LBS\" }, \"Weight\": \"5.5\" }\n        }],\n        \"TotalCharges\": { \"CurrencyCode\": \"USD\", \"MonetaryValue\": \"18.50\" },\n        \"GuaranteedDaysToDelivery\": \"5\",\n        \"RatedShipmentAlert\": [{ \"Code\": \"110001\", \"Description\": \"Success\" }]\n      },\n      {\n        \"Service\": { \"Code\": \"02\", \"Description\": \"UPS 2nd Day Air\" },\n        \"RatedPackage\": [{\n          \"TransportationCharges\": { \"CurrencyCode\": \"USD\", \"MonetaryValue\": \"32.75\" },\n          \"BaseServiceCharge\": { \"CurrencyCode\": \"USD\", \"MonetaryValue\": \"28.00\" },\n          \"Weight\": { \"UnitOfMeasurement\": { \"Code\": \"LBS\" }, \"Weight\": \"5.5\" }\n        }],\n        \"TotalCharges\": { \"CurrencyCode\": \"USD\", \"MonetaryValue\": \"32.75\" },\n        \"GuaranteedDaysToDelivery\": \"2\"\n      },\n      {\n        \"Service\": { \"Code\": \"01\", \"Description\": \"UPS Next Day Air\" },\n        \"RatedPackage\": [{\n          \"TransportationCharges\": { \"CurrencyCode\": \"USD\", \"MonetaryValue\": \"58.99\" },\n          \"BaseServiceCharge\": { \"CurrencyCode\": \"USD\", \"MonetaryValue\": \"52.00\" },\n          \"Weight\": { \"UnitOfMeasurement\": { \"Code\": \"LBS\" }, \"Weight\": \"5.5\" }\n        }],\n        \"TotalCharges\": { \"CurrencyCode\": \"USD\", \"MonetaryValue\": \"58.99\" },\n        \"GuaranteedDaysToDelivery\": \"1\"\n      }\n    ]\n  }\n}",
+							"_postman_previewlanguage": "json"
+						}
+					]
+				},
+				{
+					"name": "Rate Specific Service — Ground",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const json = pm.response.json();",
+									"    ",
+									"    pm.test('Response status is Success', function () {",
+									"        pm.expect(json.RateResponse.Response.ResponseStatus.Code).to.eql('1');",
+									"    });",
+									"    ",
+									"    pm.test('Service code matches requested service', function () {",
+									"        const shipments = json.RateResponse.RatedShipment;",
+									"        const shipment = Array.isArray(shipments) ? shipments[0] : shipments;",
+									"        pm.expect(shipment.Service.Code).to.eql('03');",
+									"    });",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"RateRequest\": {\n    \"Request\": {\n      \"SubVersion\": \"2409\"\n    },\n    \"Shipment\": {\n      \"Shipper\": {\n        \"Name\": \"Warehouse A\",\n        \"ShipperNumber\": \"{{ups_account_number}}\",\n        \"Address\": {\n          \"AddressLine\": [\"123 Main St\"],\n          \"City\": \"New York\",\n          \"StateProvinceCode\": \"NY\",\n          \"PostalCode\": \"10001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"ShipTo\": {\n        \"Name\": \"Customer\",\n        \"Address\": {\n          \"AddressLine\": [\"456 Oak Ave\"],\n          \"City\": \"Los Angeles\",\n          \"StateProvinceCode\": \"CA\",\n          \"PostalCode\": \"90001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"ShipFrom\": {\n        \"Name\": \"Warehouse A\",\n        \"Address\": {\n          \"AddressLine\": [\"123 Main St\"],\n          \"City\": \"New York\",\n          \"StateProvinceCode\": \"NY\",\n          \"PostalCode\": \"10001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"Service\": {\n        \"Code\": \"03\",\n        \"Description\": \"UPS Ground\"\n      },\n      \"Package\": [\n        {\n          \"PackagingType\": { \"Code\": \"02\" },\n          \"Dimensions\": {\n            \"UnitOfMeasurement\": { \"Code\": \"IN\" },\n            \"Length\": \"10\",\n            \"Width\": \"8\",\n            \"Height\": \"6\"\n          },\n          \"PackageWeight\": {\n            \"UnitOfMeasurement\": { \"Code\": \"LBS\" },\n            \"Weight\": \"5.5\"\n          }\n        }\n      ]\n    }\n  }\n}",
+							"options": {
+								"raw": { "language": "json" }
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/rating/{{api_version}}/Rate",
+							"host": ["{{base_url}}"],
+							"path": ["api", "rating", "{{api_version}}", "Rate"]
+						},
+						"description": "**Rate for a specific service** — returns a quote for UPS Ground only.\n\nThis is the endpoint used when `serviceLevel` is provided in the `DomainRateRequest`. The service sends to `/Rate` with the `Service` block included in the Shipment.\n\n**Service maps this to:** `UpsRateMapper.resolveRequestOption()` → `\"Rate\"`\n\n**Key difference from Shop:** The `Service` field is present with code `\"03\"` (Ground). UPS returns a single `RatedShipment` object (not an array).\n\n### Available Service Codes\n| Code | Description |\n|------|------------|\n| 01 | UPS Next Day Air |\n| 02 | UPS 2nd Day Air |\n| 03 | UPS Ground |\n| 12 | UPS 3 Day Select |\n| 13 | UPS Next Day Air Saver |\n| 14 | UPS Next Day Air Early |\n| 59 | UPS 2nd Day Air A.M. |"
+					},
+					"response": [
+						{
+							"name": "200 — Single Service Quote",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{ "key": "Content-Type", "value": "application/json" }
+							],
+							"body": "{\n  \"RateResponse\": {\n    \"Response\": {\n      \"ResponseStatus\": { \"Code\": \"1\", \"Description\": \"Success\" }\n    },\n    \"RatedShipment\": {\n      \"Service\": { \"Code\": \"03\", \"Description\": \"UPS Ground\" },\n      \"RatedPackage\": {\n        \"TransportationCharges\": { \"CurrencyCode\": \"USD\", \"MonetaryValue\": \"18.50\" },\n        \"BaseServiceCharge\": { \"CurrencyCode\": \"USD\", \"MonetaryValue\": \"15.00\" },\n        \"Weight\": { \"UnitOfMeasurement\": { \"Code\": \"LBS\" }, \"Weight\": \"5.5\" }\n      },\n      \"TotalCharges\": { \"CurrencyCode\": \"USD\", \"MonetaryValue\": \"18.50\" },\n      \"GuaranteedDaysToDelivery\": \"5\"\n    }\n  }\n}",
+							"_postman_previewlanguage": "json"
+						}
+					]
+				},
+				{
+					"name": "Rate with Multiple Packages",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"RateRequest\": {\n    \"Request\": {\n      \"SubVersion\": \"2409\"\n    },\n    \"Shipment\": {\n      \"Shipper\": {\n        \"Name\": \"Warehouse A\",\n        \"ShipperNumber\": \"{{ups_account_number}}\",\n        \"Address\": {\n          \"AddressLine\": [\"123 Main St\", \"Building B\"],\n          \"City\": \"New York\",\n          \"StateProvinceCode\": \"NY\",\n          \"PostalCode\": \"10001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"ShipTo\": {\n        \"Name\": \"Customer\",\n        \"Address\": {\n          \"AddressLine\": [\"456 Oak Ave\", \"Apt 2B\"],\n          \"City\": \"Los Angeles\",\n          \"StateProvinceCode\": \"CA\",\n          \"PostalCode\": \"90001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"ShipFrom\": {\n        \"Name\": \"Warehouse A\",\n        \"Address\": {\n          \"AddressLine\": [\"123 Main St\", \"Building B\"],\n          \"City\": \"New York\",\n          \"StateProvinceCode\": \"NY\",\n          \"PostalCode\": \"10001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"Package\": [\n        {\n          \"PackagingType\": { \"Code\": \"02\" },\n          \"Dimensions\": {\n            \"UnitOfMeasurement\": { \"Code\": \"IN\" },\n            \"Length\": \"10\",\n            \"Width\": \"8\",\n            \"Height\": \"6\"\n          },\n          \"PackageWeight\": {\n            \"UnitOfMeasurement\": { \"Code\": \"LBS\" },\n            \"Weight\": \"5.5\"\n          }\n        },\n        {\n          \"PackagingType\": { \"Code\": \"02\" },\n          \"Dimensions\": {\n            \"UnitOfMeasurement\": { \"Code\": \"IN\" },\n            \"Length\": \"12\",\n            \"Width\": \"10\",\n            \"Height\": \"8\"\n          },\n          \"PackageWeight\": {\n            \"UnitOfMeasurement\": { \"Code\": \"LBS\" },\n            \"Weight\": \"10.0\"\n          }\n        }\n      ]\n    }\n  }\n}",
+							"options": {
+								"raw": { "language": "json" }
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/rating/{{api_version}}/Shop",
+							"host": ["{{base_url}}"],
+							"path": ["api", "rating", "{{api_version}}", "Shop"]
+						},
+						"description": "**Multi-package shipment** — demonstrates rating with 2 packages and multi-line addresses.\n\nKey points:\n- `AddressLine` is an array — our mapper converts `addressLine1` + `addressLine2` into this array\n- `Package` is an array — our mapper maps `packages[]` from the domain request\n- Uses `\"02\"` (Customer Supplied) as the default packaging type"
+					},
+					"response": []
+				},
+				{
+					"name": "Rate with Negotiated Rates",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"RateRequest\": {\n    \"Request\": {\n      \"SubVersion\": \"2409\"\n    },\n    \"Shipment\": {\n      \"Shipper\": {\n        \"Name\": \"Warehouse A\",\n        \"ShipperNumber\": \"{{ups_account_number}}\",\n        \"Address\": {\n          \"AddressLine\": [\"123 Main St\"],\n          \"City\": \"New York\",\n          \"StateProvinceCode\": \"NY\",\n          \"PostalCode\": \"10001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"ShipTo\": {\n        \"Name\": \"Customer\",\n        \"Address\": {\n          \"AddressLine\": [\"456 Oak Ave\"],\n          \"City\": \"Los Angeles\",\n          \"StateProvinceCode\": \"CA\",\n          \"PostalCode\": \"90001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"ShipFrom\": {\n        \"Name\": \"Warehouse A\",\n        \"Address\": {\n          \"AddressLine\": [\"123 Main St\"],\n          \"City\": \"New York\",\n          \"StateProvinceCode\": \"NY\",\n          \"PostalCode\": \"10001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"ShipmentRatingOptions\": {\n        \"NegotiatedRatesIndicator\": \"1\"\n      },\n      \"Package\": [\n        {\n          \"PackagingType\": { \"Code\": \"02\" },\n          \"PackageWeight\": {\n            \"UnitOfMeasurement\": { \"Code\": \"LBS\" },\n            \"Weight\": \"5.5\"\n          }\n        }\n      ]\n    }\n  }\n}",
+							"options": {
+								"raw": { "language": "json" }
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/rating/{{api_version}}/Shop",
+							"host": ["{{base_url}}"],
+							"path": ["api", "rating", "{{api_version}}", "Shop"]
+						},
+						"description": "**Negotiated Rates** — requests UPS account-specific discounted rates.\n\nRequires a valid `ShipperNumber` (UPS account number). The response will include a `NegotiatedRateCharges` block alongside the standard `TotalCharges`.\n\n**Note:** Our service's type definitions support this field (`ShipmentRatingOptions.NegotiatedRatesIndicator`) but the mapper does not currently set it. This is documented as a future improvement."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Error Scenarios",
+			"description": "Requests designed to trigger specific UPS error responses. These map to the structured error types in our service's error hierarchy.",
+			"item": [
+				{
+					"name": "400 — Invalid Address",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Returns 400 with error details', function () {",
+									"    pm.expect(pm.response.code).to.eql(400);",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.response.errors).to.be.an('array').and.not.empty;",
+									"    pm.expect(json.response.errors[0].code).to.be.a('string');",
+									"    pm.expect(json.response.errors[0].message).to.be.a('string');",
+									"});",
+									"",
+									"pm.test('Service maps this to ValidationError', function () {",
+									"    // Our UpsErrorHandler maps 400 → ValidationError",
+									"    // with code from the first error in the array",
+									"    const json = pm.response.json();",
+									"    console.log('Error code:', json.response.errors[0].code);",
+									"    console.log('Error message:', json.response.errors[0].message);",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"RateRequest\": {\n    \"Request\": {\n      \"SubVersion\": \"2409\"\n    },\n    \"Shipment\": {\n      \"Shipper\": {\n        \"Name\": \"Test Shipper\",\n        \"Address\": {\n          \"AddressLine\": [\"123 Main St\"],\n          \"City\": \"New York\",\n          \"StateProvinceCode\": \"NY\",\n          \"PostalCode\": \"00000\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"ShipTo\": {\n        \"Name\": \"Test Recipient\",\n        \"Address\": {\n          \"AddressLine\": [\"456 Oak Ave\"],\n          \"City\": \"Los Angeles\",\n          \"StateProvinceCode\": \"CA\",\n          \"PostalCode\": \"90001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"ShipFrom\": {\n        \"Name\": \"Test Shipper\",\n        \"Address\": {\n          \"AddressLine\": [\"123 Main St\"],\n          \"City\": \"New York\",\n          \"StateProvinceCode\": \"NY\",\n          \"PostalCode\": \"00000\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"Package\": [\n        {\n          \"PackagingType\": { \"Code\": \"02\" },\n          \"PackageWeight\": {\n            \"UnitOfMeasurement\": { \"Code\": \"LBS\" },\n            \"Weight\": \"5.5\"\n          }\n        }\n      ]\n    }\n  }\n}",
+							"options": {
+								"raw": { "language": "json" }
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/rating/{{api_version}}/Shop",
+							"host": ["{{base_url}}"],
+							"path": ["api", "rating", "{{api_version}}", "Shop"]
+						},
+						"description": "**Invalid Address** — uses postal code `00000` for state `NY`, which UPS rejects.\n\nExpected UPS error:\n```json\n{\n  \"response\": {\n    \"errors\": [{\n      \"code\": \"111210\",\n      \"message\": \"The postal code 00000 is invalid for the state NY.\"\n    }]\n  }\n}\n```\n\n**Our service maps this to:** `ValidationError` with `code: \"111210\"` and the UPS message."
+					},
+					"response": [
+						{
+							"name": "400 — Invalid Postal Code",
+							"status": "Bad Request",
+							"code": 400,
+							"header": [
+								{ "key": "Content-Type", "value": "application/json" }
+							],
+							"body": "{\n  \"response\": {\n    \"errors\": [\n      {\n        \"code\": \"111210\",\n        \"message\": \"The postal code 00000 is invalid for the state NY.\"\n      }\n    ]\n  }\n}",
+							"_postman_previewlanguage": "json"
+						}
+					]
+				},
+				{
+					"name": "401 — Authentication Failure",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Returns 401 with auth error', function () {",
+									"    pm.expect(pm.response.code).to.eql(401);",
+									"});",
+									"",
+									"pm.test('Service maps this to AuthenticationError', function () {",
+									"    // UpsHttpClient would invalidate token and retry once",
+									"    // If retry also 401 → AuthenticationError propagated",
+									"    console.log('Our UpsHttpClient handles this transparently:');",
+									"    console.log('1. Invalidate cached token');",
+									"    console.log('2. Fetch fresh token');",
+									"    console.log('3. Retry request once');",
+									"    console.log('4. If still 401 → throw AuthenticationError');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer invalid_token_to_trigger_401"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"RateRequest\": {\n    \"Request\": {\n      \"SubVersion\": \"2409\"\n    },\n    \"Shipment\": {\n      \"Shipper\": {\n        \"Name\": \"Test\",\n        \"Address\": {\n          \"AddressLine\": [\"123 Main St\"],\n          \"City\": \"New York\",\n          \"StateProvinceCode\": \"NY\",\n          \"PostalCode\": \"10001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"ShipTo\": {\n        \"Name\": \"Test\",\n        \"Address\": {\n          \"AddressLine\": [\"456 Oak Ave\"],\n          \"City\": \"Los Angeles\",\n          \"StateProvinceCode\": \"CA\",\n          \"PostalCode\": \"90001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"ShipFrom\": {\n        \"Name\": \"Test\",\n        \"Address\": {\n          \"AddressLine\": [\"123 Main St\"],\n          \"City\": \"New York\",\n          \"StateProvinceCode\": \"NY\",\n          \"PostalCode\": \"10001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"Package\": [{\n        \"PackagingType\": { \"Code\": \"02\" },\n        \"PackageWeight\": {\n          \"UnitOfMeasurement\": { \"Code\": \"LBS\" },\n          \"Weight\": \"5.5\"\n        }\n      }]\n    }\n  }\n}",
+							"options": {
+								"raw": { "language": "json" }
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/rating/{{api_version}}/Shop",
+							"host": ["{{base_url}}"],
+							"path": ["api", "rating", "{{api_version}}", "Shop"]
+						},
+						"description": "**Authentication Failure** — uses an invalid Bearer token to trigger a 401.\n\nExpected UPS error:\n```json\n{\n  \"response\": {\n    \"errors\": [{\n      \"code\": \"250002\",\n      \"message\": \"Invalid authentication credential\"\n    }]\n  }\n}\n```\n\n**Our service handles this transparently:** `UpsHttpClient` catches 401, invalidates the cached token, fetches a fresh one, and retries the request once. The caller only sees the error if the retry also fails."
+					},
+					"response": [
+						{
+							"name": "401 — Invalid Credentials",
+							"status": "Unauthorized",
+							"code": 401,
+							"header": [
+								{ "key": "Content-Type", "value": "application/json" }
+							],
+							"body": "{\n  \"response\": {\n    \"errors\": [\n      {\n        \"code\": \"250002\",\n        \"message\": \"Invalid authentication credential\"\n      }\n    ]\n  }\n}",
+							"_postman_previewlanguage": "json"
+						}
+					]
+				},
+				{
+					"name": "429 — Rate Limit Exceeded",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Returns 429 with rate limit error', function () {",
+									"    pm.expect(pm.response.code).to.eql(429);",
+									"});",
+									"",
+									"pm.test('Retry-After header present', function () {",
+									"    const retryAfter = pm.response.headers.get('Retry-After');",
+									"    if (retryAfter) {",
+									"        console.log('Retry after', retryAfter, 'seconds');",
+									"        console.log('Our RetryableHttpClient respects this header');",
+									"    }",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"RateRequest\": {\n    \"Request\": {\n      \"SubVersion\": \"2409\"\n    },\n    \"Shipment\": {\n      \"Shipper\": {\n        \"Name\": \"Test\",\n        \"Address\": {\n          \"AddressLine\": [\"123 Main St\"],\n          \"City\": \"New York\",\n          \"StateProvinceCode\": \"NY\",\n          \"PostalCode\": \"10001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"ShipTo\": {\n        \"Name\": \"Test\",\n        \"Address\": {\n          \"AddressLine\": [\"456 Oak Ave\"],\n          \"City\": \"Los Angeles\",\n          \"StateProvinceCode\": \"CA\",\n          \"PostalCode\": \"90001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"ShipFrom\": {\n        \"Name\": \"Test\",\n        \"Address\": {\n          \"AddressLine\": [\"123 Main St\"],\n          \"City\": \"New York\",\n          \"StateProvinceCode\": \"NY\",\n          \"PostalCode\": \"10001\",\n          \"CountryCode\": \"US\"\n        }\n      },\n      \"Package\": [{\n        \"PackagingType\": { \"Code\": \"02\" },\n        \"PackageWeight\": {\n          \"UnitOfMeasurement\": { \"Code\": \"LBS\" },\n          \"Weight\": \"5.5\"\n        }\n      }]\n    }\n  }\n}",
+							"options": {
+								"raw": { "language": "json" }
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/rating/{{api_version}}/Shop",
+							"host": ["{{base_url}}"],
+							"path": ["api", "rating", "{{api_version}}", "Shop"]
+						},
+						"description": "**Rate Limit** — this request won't naturally trigger a 429 unless you've exhausted your quota. Included to document the response shape.\n\nExpected UPS error:\n```json\n{\n  \"response\": {\n    \"errors\": [{\n      \"code\": \"120506\",\n      \"message\": \"Rate limit exceeded. Please retry after some time\"\n    }]\n  }\n}\n```\n\nWith `Retry-After: 60` header.\n\n**Our service maps this to:** `RateLimitError` with `retryAfterMs: 60000`. The `RetryableHttpClient` automatically respects the `Retry-After` header and waits before retrying."
+					},
+					"response": [
+						{
+							"name": "429 — Rate Limit",
+							"status": "Too Many Requests",
+							"code": 429,
+							"header": [
+								{ "key": "Content-Type", "value": "application/json" },
+								{ "key": "Retry-After", "value": "60" }
+							],
+							"body": "{\n  \"response\": {\n    \"errors\": [\n      {\n        \"code\": \"120506\",\n        \"message\": \"Rate limit exceeded. Please retry after some time\"\n      }\n    ]\n  }\n}",
+							"_postman_previewlanguage": "json"
+						}
+					]
+				}
+			]
+		}
+	]
+}

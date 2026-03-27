@@ -1,0 +1,57 @@
+{
+  "RateResponse": {
+    "Response": {
+      "ResponseStatus": {
+        "Code": "1",
+        "Description": "Success"
+      },
+      "Alert": [
+        { "Code": "110001", "Description": "Success" }
+      ],
+      "TransactionReference": {
+        "CustomerContext": "test-context"
+      }
+    },
+    "RatedShipment": [
+      {
+        "Service": { "Code": "03", "Description": "UPS Ground" },
+        "RatedPackage": [
+          {
+            "TransportationCharges": { "CurrencyCode": "USD", "MonetaryValue": "18.50" },
+            "BaseServiceCharge": { "CurrencyCode": "USD", "MonetaryValue": "15.00" },
+            "Weight": { "UnitOfMeasurement": { "Code": "LBS" }, "Weight": "5.5" }
+          }
+        ],
+        "TotalCharges": { "CurrencyCode": "USD", "MonetaryValue": "18.50" },
+        "GuaranteedDaysToDelivery": "5",
+        "RatedShipmentAlert": [
+          { "Code": "110001", "Description": "Success" }
+        ]
+      },
+      {
+        "Service": { "Code": "02", "Description": "UPS 2nd Day Air" },
+        "RatedPackage": [
+          {
+            "TransportationCharges": { "CurrencyCode": "USD", "MonetaryValue": "32.75" },
+            "BaseServiceCharge": { "CurrencyCode": "USD", "MonetaryValue": "28.00" },
+            "Weight": { "UnitOfMeasurement": { "Code": "LBS" }, "Weight": "5.5" }
+          }
+        ],
+        "TotalCharges": { "CurrencyCode": "USD", "MonetaryValue": "32.75" },
+        "GuaranteedDaysToDelivery": "2"
+      },
+      {
+        "Service": { "Code": "01", "Description": "UPS Next Day Air" },
+        "RatedPackage": [
+          {
+            "TransportationCharges": { "CurrencyCode": "USD", "MonetaryValue": "58.99" },
+            "BaseServiceCharge": { "CurrencyCode": "USD", "MonetaryValue": "52.00" },
+            "Weight": { "UnitOfMeasurement": { "Code": "LBS" }, "Weight": "5.5" }
+          }
+        ],
+        "TotalCharges": { "CurrencyCode": "USD", "MonetaryValue": "58.99" },
+        "GuaranteedDaysToDelivery": "1"
+      }
+    ]
+  }
+}

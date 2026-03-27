@@ -1,0 +1,8 @@
+{
+  "token_type": "Bearer",
+  "access_token": "eyJhbGciOiJSUzM4NCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0X2NsaWVudCIsImlhdCI6MTcwNjgwMzIwMH0.test-signature",
+  "issued_at": "1706803200000",
+  "client_id": "test_client_id",
+  "expires_in": 14399,
+  "status": "approved"
+}

@@ -1,0 +1,17 @@
+{
+  "RateResponse": {
+    "Response": {
+      "ResponseStatus": { "Code": "1", "Description": "Success" }
+    },
+    "RatedShipment": {
+      "Service": { "Code": "03", "Description": "UPS Ground" },
+      "RatedPackage": {
+        "TransportationCharges": { "CurrencyCode": "USD", "MonetaryValue": "18.50" },
+        "BaseServiceCharge": { "CurrencyCode": "USD", "MonetaryValue": "15.00" },
+        "Weight": { "UnitOfMeasurement": { "Code": "LBS" }, "Weight": "5.5" }
+      },
+      "TotalCharges": { "CurrencyCode": "USD", "MonetaryValue": "18.50" },
+      "GuaranteedDaysToDelivery": "5"
+    }
+  }
+}
